@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Écoles</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        .leaflet-popup-content {
+            font-size: 14px;
+        }
+        .leaflet-popup-content strong {
+            color: #1976d2;
+        }
+        .leaflet-popup-content a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .leaflet-popup-content a:hover {
+            text-decoration: underline;
+        }
+        .ratio {
+            font-weight: bold;
+            color: #d32f2f;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+        }
+        .stats-control {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            font-size: 14px;
+        }
+        .stats-control .total {
+            color: #1976d2;
+            font-weight: bold;
+        }
+        .stats-control .not-found {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        .school-entry {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .school-entry:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.min.js"></script>
+    <script>
+        // Initialize the map with a default center (France)
+        var map = L.map('map').setView([46.603354, 1.888334], 6);
+        
+        // Add the tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Create a default marker icon
+        var defaultIcon = L.AwesomeMarkers.icon({
+            icon: 'graduation-cap',  // Font Awesome school icon
+            prefix: 'fa',           // specify we're using Font Awesome
+            markerColor: 'blue',    // keep the blue color
+            iconColor: 'white'      // make the icon white for better contrast
+        });
+
+        // Store school data
+        var schoolsData = {{ schools | safe }};
+        var repSchools = {{ rep_schools | safe }};
+        console.log('Loaded REP schools:', repSchools);
+        var markers = [];
+        var locationGroups = {};
+
+        // Function to check if a school is in REP list
+        function isRepSchool(schoolName) {
+            // Extract UAI code from school name (format: "School Name (UAI)")
+            var match = schoolName.match(/\(([0-9A-Za-z]+)\)$/);
+            if (match) {
+                var uai = match[1].toUpperCase();
+                var isRep = repSchools.includes(uai);
+                console.log('School check details:', {
+                    schoolName: schoolName,
+                    extractedUAI: match[1],
+                    uppercaseUAI: uai,
+                    isInRepList: isRep,
+                    repSchoolsList: repSchools
+                });
+                return isRep;
+            }
+            return false;
+        }
+
+        // Function to create popup content for a group of schools
+        function createPopupContent(schools) {
+            console.log('Creating popup content for schools:', schools.map(s => s.name));
+            var content = '';
+            schools.forEach(function(school, index) {
+                content += '<div class="school-entry">';
+                content += '<strong><a href="' + school.directions_url + '" target="_blank">' + 
+                          school.name + '</a></strong><br>';
+                content += school.address + '<br>';
+                content += school.city + '<br>';
+                content += school.specialization + '<br>';
+                content += '<div class="ratio">Postes vacants: ' + school.ratio + '</div>';
+                content += '</div>';
+            });
+            return content;
+        }
+
+        // Create markers for each location group
+        schoolsData.features.forEach(function(feature) {
+            var coords = feature.geometry.coordinates;
+            var schools = feature.properties.schools;
+            
+            // Check if any school in this location is a REP school
+            var isRep = schools.some(school => {
+                var result = isRepSchool(school.name);
+                console.log('Checking school for REP status:', school.name, 'Result:', result);
+                return result;
+            });
+            console.log('Location schools:', schools.map(s => s.name), 'Is REP location:', isRep);
+            
+            // Create marker with appropriate color based on REP status
+            var markerIcon = L.AwesomeMarkers.icon({
+                icon: 'graduation-cap',
+                prefix: 'fa',
+                markerColor: isRep ? 'red' : 'blue',
+                iconColor: 'white'
+            });
+            
+            // Create popup content for all schools at this location
+            var popupContent = document.createElement('div');
+            popupContent.className = 'school-popup';
+            
+            // Add each unique school to the popup
+            schools.forEach(function(school, index) {
+                // Skip if this school has already been processed
+                if (index > 0 && schools.slice(0, index).some(s => s.name === school.name)) {
+                    return;
+                }
+                
+                var schoolInfo = document.createElement('div');
+                schoolInfo.className = 'school-info';
+                
+                // Start with school name and location info
+                var content = [
+                    '<h3><a href="' + (school.directions_url || '#') + '" target="_blank">' + (school.name || 'Unknown School') + '</a></h3>',
+                    '<p><strong>City:</strong> ' + (school.city || 'N/A') + '</p>',
+                    '<p><strong>Address:</strong> ' + (school.address || 'N/A') + '</p>'
+                ];
+                
+                // Add each position for this school
+                if (school.positions && school.positions.length > 0) {
+                    content.push('<div class="positions">');
+                    content.push('<h4>Available Positions:</h4>');
+                    school.positions.forEach(function(position) {
+                        content.push('<div class="position">');
+                        content.push('<p><strong>Type:</strong> ' + (position.type || 'N/A') + '</p>');
+                        content.push('<p><strong>Specialization:</strong> ' + (position.specialization || 'N/A') + '</p>');
+                        content.push('<p><strong>Vacancy Ratio:</strong> ' + (position.ratio || 'N/A') + '</p>');
+                        content.push('</div>');
+                    });
+                    content.push('</div>');
+                }
+                
+                schoolInfo.innerHTML = content.join('');
+                popupContent.appendChild(schoolInfo);
+                
+                // Add separator between schools
+                if (index < schools.length - 1) {
+                    var hr = document.createElement('hr');
+                    popupContent.appendChild(hr);
+                }
+            });
+            
+            // Create marker with correct coordinate order [lat, lng] and custom icon
+            var marker = L.marker([coords[1], coords[0]], {
+                icon: markerIcon
+            })
+                .bindPopup(popupContent, {
+                    maxWidth: 300,
+                    className: 'school-popup'
+                });
+            
+            // Add marker to the map
+            marker.addTo(map);
+            
+            // Store marker reference
+            markers.push(marker);
+        });
+
+        // Fit map to show all markers
+        var bounds = L.latLngBounds(markers.map(m => m.getLatLng()));
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, {
+                padding: [50, 50]
+            });
+        }
+
+        // Add statistics control
+        var statsControl = L.Control.extend({
+            options: {
+                position: 'topright'
+            },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control stats-control');
+                container.innerHTML = `
+                    <span class="total">{{ stats.found }}</span> écoles trouvées<br>
+                    <span class="not-found">{{ stats.not_found }}</span> écoles non trouvées
+                `;
+                return container;
+            }
+        });
+        map.addControl(new statsControl());
+    </script>
+</body>
+</html> 

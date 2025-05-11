@@ -1,0 +1,15 @@
+[Unit]
+Description=Mouvement School Map Service
+After=network.target
+
+[Service]
+User=coco
+WorkingDirectory=/home/coco/Servers/Mouvement
+Environment="PATH=/home/coco/Servers/pyenvs/mouvement-server/bin"
+Environment="PYTHONPATH=/home/coco/Servers/Mouvement"
+ExecStart=/home/coco/Servers/pyenvs/mouvement-server/bin/python mouvement/server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target 
